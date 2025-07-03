@@ -1,0 +1,15 @@
+[package]
+name = "nested-zip-extractor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+description = "GUI-приложение для рекурсивного извлечения вложенных ZIP-архивов."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+egui = "0.27"
+eframe = "0.27"
+zip = "0.6"
+rfd = "0.14"
+anyhow = "1.0"
+tokio = { version = "1.37", features = ["rt-multi-thread", "macros"] } 
