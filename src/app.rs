@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use crate::extractor::{extract_zip_recursive, ExtractionProgress};
 use eframe::App;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 pub struct NestedZipApp {
     zip_path: Option<PathBuf>,
@@ -13,6 +12,7 @@ pub struct NestedZipApp {
     status: String,
     error: Option<String>,
     extracting: bool,
+    keep_original: bool,
 }
 
 impl Default for NestedZipApp {
@@ -24,6 +24,7 @@ impl Default for NestedZipApp {
             status: "Ожидание действий пользователя".to_string(),
             error: None,
             extracting: false,
+            keep_original: true,
         }
     }
 }
@@ -32,6 +33,14 @@ impl App for NestedZipApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Nested ZIP Extractor");
+            ui.separator();
+            ui.label("Иногда надо распаковать архивы в архивах. Например при анализе выгрузки объектов из Informatica Cloud. Та еще боль.");
+            ui.label("Это приложение поможет вам распаковать архивы в архивах.");
+            ui.label("Выберите ZIP-файл и папку для распаковки.");
+            ui.label("Нажмите на кнопку \"Извлечь\" и подождите пока все файлы будут распакованы.");
+            ui.label("Если вы хотите сохранить оригинальный ZIP файл, включите опцию \"Сохранить оригинальный ZIP файл\".");
+            ui.label("Если вы хотите очистить лог операций, нажмите на кнопку \"Очистить лог\".");
+            ui.label("Если вы хотите очистить лог операций, нажмите на кнопку \"Очистить лог\".");
             ui.separator();
 
             if ui.button("Выбрать ZIP-файл").clicked() {
@@ -53,15 +62,27 @@ impl App for NestedZipApp {
             }
 
             ui.separator();
-            let (percent, extracted, total, done) = {
+            
+            // Опция сохранения оригинального файла
+            ui.checkbox(&mut self.keep_original, "Сохранить оригинальный ZIP файл");
+            ui.label("Если включено, оригинальный ZIP файл останется в исходной папке");
+
+            ui.separator();
+            let (percent, extracted, total, done, log_messages) = {
                 let progress = self.progress.lock().unwrap();
-                (progress.percent(), progress.extracted, progress.total, progress.done)
+                (progress.percent(), progress.extracted, progress.total, progress.done, progress.log.clone())
             };
             if self.extracting {
                 // Вывод прогресса в консоль
                 println!("Прогресс: {}/{} ({}%)", extracted, total, percent);
                 ui.label(format!("Извлечение: {}/{} ({}%)", extracted, total, percent));
                 ui.add(egui::ProgressBar::new(percent as f32 / 100.0).show_percentage());
+                
+                // Показываем текущую операцию из последнего сообщения лога
+                if let Some(last_message) = log_messages.last() {
+                    ui.label(format!("Текущая операция: {}", last_message));
+                }
+                
                 if done {
                     self.extracting = false;
                     self.status = "Извлечение завершено".to_string();
@@ -72,13 +93,14 @@ impl App for NestedZipApp {
                     self.error = None;
                     self.extracting = true;
                     let progress = self.progress.clone();
+                    let keep_original = self.keep_original;
                     // Сброс прогресса
                     {
                         let mut p = progress.lock().unwrap();
                         *p = crate::extractor::ExtractionProgress::default();
                     }
                     std::thread::spawn(move || {
-                        let res = extract_zip_recursive(&zip, &target, &progress);
+                        let res = extract_zip_recursive(&zip, &target, &progress, keep_original);
                         let mut p = progress.lock().unwrap();
                         p.done = true;
                         if let Err(e) = res {
@@ -94,6 +116,25 @@ impl App for NestedZipApp {
                 ui.colored_label(egui::Color32::RED, err);
             }
             ui.label(&self.status);
+            
+            // Область для отображения лога операций
+            ui.separator();
+            ui.heading("Лог операций");
+            
+            // Кнопка очистки лога
+            if ui.button("Очистить лог").clicked() {
+                let mut progress = self.progress.lock().unwrap();
+                progress.log.clear();
+            }
+            
+            // Область прокрутки для лога
+            egui::ScrollArea::vertical()
+                .max_height(200.0)
+                .show(ui, |ui| {
+                    for (i, message) in log_messages.iter().enumerate() {
+                        ui.label(format!("[{}] {}", i + 1, message));
+                    }
+                });
         });
         ctx.request_repaint();
     }
